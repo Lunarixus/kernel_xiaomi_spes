@@ -13,9 +13,21 @@
 #include <linux/spi/spi.h>
 #include <linux/spinlock.h>
 
-/* SPI SE specific registers and respective register fields */
-#define SE_SPI_CPHA		0x224
-#define CPHA			BIT(0)
+#define SPI_NUM_CHIPSELECT	(4)
+#define SPI_XFER_TIMEOUT_MS	(1000)
+#define SPI_AUTO_SUSPEND_DELAY	(250)
+/* SPI SE specific registers */
+#define SE_SPI_CPHA		(0x224)
+#define SE_SPI_LOOPBACK		(0x22C)
+#define SE_SPI_CPOL		(0x230)
+#define SE_SPI_DEMUX_OUTPUT_INV	(0x24C)
+#define SE_SPI_DEMUX_SEL	(0x250)
+#define SE_SPI_TRANS_CFG	(0x25C)
+#define SE_SPI_WORD_LEN		(0x268)
+#define SE_SPI_TX_TRANS_LEN	(0x26C)
+#define SE_SPI_RX_TRANS_LEN	(0x270)
+#define SE_SPI_PRE_POST_CMD_DLY	(0x274)
+#define SE_SPI_DELAY_COUNTERS	(0x278)
 
 #define SE_SPI_LOOPBACK		0x22c
 #define LOOPBACK_ENABLE		0x1

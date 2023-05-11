@@ -497,6 +497,10 @@ static inline void cpufreq_resume(void) {}
 #define CPUFREQ_CREATE_POLICY		(0)
 #define CPUFREQ_REMOVE_POLICY		(1)
 
+#ifdef CONFIG_ARCH_QCOM
+#define CPUFREQ_THERMAL			(2)
+#endif
+
 #ifdef CONFIG_CPU_FREQ
 int cpufreq_register_notifier(struct notifier_block *nb, unsigned int list);
 int cpufreq_unregister_notifier(struct notifier_block *nb, unsigned int list);

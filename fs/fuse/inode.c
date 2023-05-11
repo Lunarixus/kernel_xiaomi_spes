@@ -1346,9 +1346,7 @@ static int fuse_bdi_init(struct fuse_conn *fc, struct super_block *sb)
 		return err;
 
 	/* fuse does it's own writeback accounting */
-	sb->s_bdi->capabilities &= ~BDI_CAP_WRITEBACK_ACCT;
-	sb->s_bdi->capabilities |= BDI_CAP_STRICTLIMIT;
-
+	sb->s_bdi->capabilities = BDI_CAP_NO_ACCT_WB;
 	/*
 	 * For a single fuse filesystem use max 1% of dirty +
 	 * writeback threshold.

@@ -23,10 +23,16 @@
 #include "iostat.h"
 #include <trace/events/f2fs.h>
 
-static struct kmem_cache *victim_entry_slab;
+static inline bool should_break_gc(struct f2fs_sb_info *sbi)
+{
+	if (freezing(current) || kthread_should_stop())
+		return true;
 
-static unsigned int count_bits(const unsigned long *addr,
-				unsigned int offset, unsigned int len);
+	if (sbi->gc_mode == GC_URGENT)
+		return false;
+
+	return !is_idle(sbi, GC_TIME);
+}
 
 static int gc_thread_func(void *data)
 {
@@ -34,7 +40,8 @@ static int gc_thread_func(void *data)
 	struct f2fs_gc_kthread *gc_th = sbi->gc_thread;
 	wait_queue_head_t *wq = &sbi->gc_thread->gc_wait_queue_head;
 	wait_queue_head_t *fggc_wq = &sbi->gc_thread->fggc_wq;
-	unsigned int wait_ms;
+	unsigned int wait_ms, gc_count, i;
+	bool boost;
 
 	wait_ms = gc_th->min_sleep_time;
 
@@ -79,6 +86,8 @@ static int gc_thread_func(void *data)
 			continue;
 		}
 
+		boost = sbi->gc_booster;
+
 		/*
 		 * [GC triggering condition]
 		 * 0. GC is not conducted currently.
@@ -110,9 +119,9 @@ static int gc_thread_func(void *data)
 		}
 
 		if (foreground) {
-			f2fs_down_write(&sbi->gc_lock);
+			down_write(&sbi->gc_lock);
 			goto do_gc;
-		} else if (!f2fs_down_write_trylock(&sbi->gc_lock)) {
+		} else if (!down_write_trylock(&sbi->gc_lock)) {
 			stat_other_skip_bggc_count(sbi);
 			goto next;
 		}
@@ -124,23 +133,48 @@ static int gc_thread_func(void *data)
 			goto next;
 		}
 
-		if (has_enough_invalid_blocks(sbi))
-			decrease_sleep_time(gc_th, &wait_ms);
-		else
-			increase_sleep_time(gc_th, &wait_ms);
+		if (boost)
+			calculate_sleep_time(sbi, gc_th, &wait_ms);
+		else {
+			if (has_enough_invalid_blocks(sbi))
+				decrease_sleep_time(gc_th, &wait_ms);
+			else
+				increase_sleep_time(gc_th, &wait_ms);
+		}
 do_gc:
-		if (!foreground)
-			stat_inc_bggc_count(sbi->stat_info);
+		gc_count = (boost && !foreground) ? get_gc_count(sbi) : 1;
 
-		sync_mode = F2FS_OPTION(sbi).bggc_mode == BGGC_MODE_SYNC;
+		for (i = 0; i < gc_count; i++) {
+			/*
+			 * f2fs_gc will release gc_lock before return,
+			 * so we need to relock it before calling f2fs_gc.
+			 */
+			if (i && !down_write_trylock(&sbi->gc_lock)) {
+				stat_other_skip_bggc_count(sbi);
+				break;
+			}
 
-		/* foreground GC was been triggered via f2fs_balance_fs() */
+			if (!foreground)
+				stat_inc_bggc_count(sbi->stat_info);
+
+			sync_mode = F2FS_OPTION(sbi).bggc_mode == BGGC_MODE_SYNC;
+
+			/* foreground GC was been triggered via f2fs_balance_fs() */
+			if (foreground)
+				sync_mode = false;
+
+			/* if return value is not 0, no victim was selected */
+			if (f2fs_gc(sbi, sync_mode, !foreground, NULL_SEGNO)) {
+				wait_ms = gc_th->no_gc_sleep_time;
+				break;
+			}
+
+			if (should_break_gc(sbi))
+				break;
+		}
+
 		if (foreground)
-			sync_mode = false;
-
-		/* if return value is not zero, no victim was selected */
-		if (f2fs_gc(sbi, sync_mode, !foreground, false, NULL_SEGNO))
-			wait_ms = gc_th->no_gc_sleep_time;
+			wake_up_all(&gc_th->fggc_wq);
 
 		if (foreground)
 			wake_up_all(&gc_th->fggc_wq);
@@ -198,7 +232,7 @@ void f2fs_stop_gc_thread(struct f2fs_sb_info *sbi)
 		return;
 	kthread_stop(gc_th->f2fs_gc_task);
 	wake_up_all(&gc_th->fggc_wq);
-	kfree(gc_th);
+	kvfree(gc_th);
 	sbi->gc_thread = NULL;
 }
 

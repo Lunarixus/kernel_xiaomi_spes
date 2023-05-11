@@ -804,6 +804,15 @@ config LEDS_POWERNV
 	  To compile this driver as a module, choose 'm' here: the module
 	  will be called leds-powernv.
 
+config LEDS_MSM_BACK_GPIO_FLASH
+        tristate "Support for BACK GPIO Flash LEDs"
+        help
+          This driver supports the leds functionality of GPIO Flash LED. It
+          includes flash mode and torch mode.
+
+          To compile this driver as a module, choose M here: the module will
+          be called leds-back-gpio-flash.
+
 config LEDS_SYSCON
 	bool "LED support for LEDs on system controllers"
 	depends on LEDS_CLASS=y
@@ -882,52 +891,20 @@ config LEDS_LM3697
 	depends on LEDS_TI_LMU_COMMON
 	depends on I2C && OF
 	help
-	  Say Y to enable the LM3697 LED driver for TI LMU devices.
-	  This supports the LED device LM3697.
-
-config LEDS_LM36274
-	tristate "LED driver for LM36274"
-	depends on LEDS_TI_LMU_COMMON
-	depends on MFD_TI_LMU
+	  This option enables device driver support for the vibrator
+	  on the Qualcomm technologies Inc's QPNP PMICs. The vibrator
+	  is connected on the VIB_DRV_N line and can be controlled
+	  manually or by the DTEST lines.It uses the android timed-output
+	  framework.
+	  
+config LEDS_QPNP_VIBRATOR_PWM
+	tristate "Vibrator-PWM support for QPNP PMIC"
+	depends on LEDS_CLASS && MFD_SPMI_PMIC
 	help
-	  Say Y to enable the LM36274 LED driver for TI LMU devices.
-	  This supports the LED device LM36274.
+	  This option enables device driver support for the vibrator-pwm
+	  peripheral found on Qualcomm Technologies, Inc. QPNP PMICs.
+	  The vibrator-pwm peripheral is capable of driving LAR vibrators.
 
-config LEDS_TPS6105X
-	tristate "LED support for TI TPS6105X"
-	depends on LEDS_CLASS
-	depends on TPS6105X
-	default y if TPS6105X
-	help
-	  This driver supports TPS61050/TPS61052 LED chips.
-	  It is a single boost converter primarily for white LEDs and
-	  audio amplifiers.
-
-config LEDS_IP30
-	tristate "LED support for SGI Octane machines"
-	depends on LEDS_CLASS
-	depends on SGI_MFD_IOC3 || COMPILE_TEST
-	help
-	  This option enables support for the Red and White LEDs of
-	  SGI Octane machines.
-
-	  To compile this driver as a module, choose M here: the module
-	  will be called leds-ip30.
-
-config LEDS_SGM3140
-	tristate "LED support for the SGM3140"
-	depends on LEDS_CLASS_FLASH
-	depends on V4L2_FLASH_LED_CLASS || !V4L2_FLASH_LED_CLASS
-	help
-	  This option enables support for the SGM3140 500mA Buck/Boost Charge
-	  Pump LED Driver.
-
-config LEDS_ACER_A500
-	tristate "Power button LED support for Acer Iconia Tab A500"
-	depends on LEDS_CLASS && MFD_ACER_A500_EC
-	help
-	  This option enables support for the Power Button LED of
-	  Acer Iconia Tab A500.
 
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"

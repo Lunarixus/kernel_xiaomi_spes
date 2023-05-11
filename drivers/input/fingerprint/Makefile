@@ -1,3 +1,3 @@
-obj-$(CONFIG_GOODIX_FINGERPRINT) += goodixfp.o
-goodixfp-$(CONFIG_GOODIX_FINGERPRINT) += gf_spi.o platform.o netlink.o
-
+obj-$(CONFIG_FINGERPRINT_FPC1020) += fpc/
+obj-$(CONFIG_FINGERPRINT_GOODIX_FOD) += goodix/
+obj-$(CONFIG_SILEAD_FP_PLATFORM) += silead/

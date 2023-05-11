@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
  *
  * RMNET Data ingress/egress handler
  */
@@ -132,7 +132,10 @@ static int rmnet_map_egress_handler(struct sk_buff *skb,
 	additional_header_len = 0;
 	required_headroom = sizeof(struct rmnet_map_header);
 
-	if (port->data_format & RMNET_FLAGS_EGRESS_MAP_CKSUMV4) {
+	if (port->data_format & RMNET_FLAGS_EGRESS_MAP_CKSUMV3) {
+		additional_header_len = sizeof(struct rmnet_map_ul_csum_header);
+		csum_type = RMNET_FLAGS_EGRESS_MAP_CKSUMV3;
+	} else if (port->data_format & RMNET_FLAGS_EGRESS_MAP_CKSUMV4) {
 		additional_header_len = sizeof(struct rmnet_map_ul_csum_header);
 		required_headroom += additional_header_len;
 	}

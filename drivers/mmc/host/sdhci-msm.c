@@ -2527,6 +2527,86 @@ static int sdhci_msm_gcc_reset(struct device *dev, struct sdhci_host *host)
 	return ret;
 }
 
+/*
+ * Changes the bus speed mode for eMMC only as per the
+ * kernel command line parameter passed in the boot image.
+ * If not set remains in HS400ES mode.
+ */
+static void sdhci_msm_select_bus_mode(struct sdhci_host *host)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_msm_host *msm_host = pltfm_host->priv;
+	enum select_bus_mode {SELECT_HS400ES, SELECT_HS400,
+				SELECT_HS200, SELECT_DDR52,
+				SELECT_HS};
+
+	if (bus_mode) {
+		if (bus_mode == SELECT_HS400) {
+			msm_host->enhanced_strobe = false;
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS400_ES);
+		} else if (bus_mode == SELECT_HS200) {
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS400_ES);
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS400);
+		} else if (bus_mode == SELECT_DDR52) {
+			host->quirks2 |= SDHCI_QUIRK2_BROKEN_HS200;
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS400_ES);
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS400);
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS200);
+		} else if (bus_mode == SELECT_HS) {
+			host->quirks2 |= SDHCI_QUIRK2_BROKEN_HS200;
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS400_ES);
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS400);
+			msm_host->pdata->caps2 &= ~(MMC_CAP2_HS200);
+			msm_host->pdata->caps &= ~(MMC_CAP_3_3V_DDR |
+					MMC_CAP_1_8V_DDR | MMC_CAP_1_2V_DDR);
+			msm_host->mmc->clk_scaling.lower_bus_speed_mode &=
+				~(MMC_SCALING_LOWER_DDR52_MODE);
+		}
+		pr_info("%s: %s: bus_mode=%d set using kernel command line\n",
+			mmc_hostname(host->mmc), __func__, bus_mode);
+	}
+}
+
+
+/* add sdcard slot info for factory mode
+ *    begin
+ *    */
+static struct kobject *card_slot_device = NULL;
+static struct sdhci_host *card_host =NULL;
+static ssize_t card_slot_status_show(struct device *dev,
+					       struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", mmc_gpio_get_cd(card_host->mmc));
+}
+
+static DEVICE_ATTR(card_slot_status, S_IRUGO ,
+						card_slot_status_show, NULL);
+
+int32_t card_slot_init_device_name(void)
+{
+	int32_t error = 0;
+	if(card_slot_device != NULL){
+		pr_err("card_slot already created\n");
+		return 0;
+	}
+	card_slot_device = kobject_create_and_add("card_slot", NULL);
+	if (card_slot_device == NULL) {
+		pr_debug("%s: card_slot register failed\n", __func__);
+		error = -ENOMEM;
+		return error ;
+	}
+	error = sysfs_create_file(card_slot_device, &dev_attr_card_slot_status.attr);
+	if (error) {
+		pr_debug("%s: card_slot card_slot_status_create_file failed\n", __func__);
+		kobject_del(card_slot_device);
+	}
+	return 0 ;
+}
+/* add sdcard slot info for factory mode
+ *    end
+ *    */
+
+
 static int sdhci_msm_probe(struct platform_device *pdev)
 {
 	struct sdhci_host *host;
@@ -2779,8 +2859,19 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	if (ret)
 		goto pm_runtime_disable;
 
-	pm_runtime_mark_last_busy(&pdev->dev);
-	pm_runtime_put_autosuspend(&pdev->dev);
+	if (!gpio_is_valid(msm_host->pdata->status_gpio)) {
+		msm_host->polling.show = show_polling;
+		msm_host->polling.store = store_polling;
+		sysfs_attr_init(&msm_host->polling.attr);
+		msm_host->polling.attr.name = "polling";
+		msm_host->polling.attr.mode = 0644;
+		ret = device_create_file(&pdev->dev, &msm_host->polling);
+		if (ret)
+			goto remove_max_bus_bw_file;
+	}else{
+		card_host = dev_get_drvdata(&pdev->dev);
+		card_slot_init_device_name();
+	}
 
 	return 0;
 

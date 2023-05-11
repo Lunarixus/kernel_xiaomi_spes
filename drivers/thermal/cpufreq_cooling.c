@@ -23,7 +23,9 @@
 #include <linux/thermal.h>
 
 #include <trace/events/thermal.h>
-#include <trace/hooks/thermal.h>
+#ifdef CONFIG_ARCH_QCOM
+#define USE_LMH_DEV    0
+#endif
 
 /*
  * Cooling state <-> CPUFreq frequency
@@ -85,7 +87,104 @@ static DEFINE_IDA(cpufreq_ida);
 static DEFINE_MUTEX(cooling_list_lock);
 static LIST_HEAD(cpufreq_cdev_list);
 
-#ifdef CONFIG_THERMAL_GOV_POWER_ALLOCATOR
+/* Below code defines functions to be used for cpufreq as cooling device */
+
+/**
+ * cpufreq_thermal_notifier - notifier callback for cpufreq policy change.
+ * @nb:	struct notifier_block * with callback info.
+ * @event: value showing cpufreq event for which this function invoked.
+ * @data: callback-specific data
+ *
+ * Callback to hijack the notification on cpufreq policy transition.
+ * Every time there is a change in policy, we will intercept and
+ * update the cpufreq policy with thermal constraints.
+ *
+ * Return: 0 (success)
+ */
+static int cpufreq_thermal_notifier(struct notifier_block *nb,
+				    unsigned long event, void *data)
+{
+	struct cpufreq_policy *policy = data;
+	unsigned long clipped_freq = ULONG_MAX, floor_freq = 0;
+	struct cpufreq_cooling_device *cpufreq_cdev;
+#ifdef CONFIG_ARCH_QCOM
+	if (event != CPUFREQ_THERMAL)
+#else
+	if (event != CPUFREQ_INCOMPATIBLE)
+#endif
+		return NOTIFY_DONE;
+
+	mutex_lock(&cooling_list_lock);
+	list_for_each_entry(cpufreq_cdev, &cpufreq_cdev_list, node) {
+		/*
+		 * A new copy of the policy is sent to the notifier and can't
+		 * compare that directly.
+		 */
+		if (policy->cpu != cpufreq_cdev->policy->cpu)
+			continue;
+
+		/*
+		 * policy->max is the maximum allowed frequency defined by user
+		 * and clipped_freq is the maximum that thermal constraints
+		 * allow.
+		 *
+		 * If clipped_freq is lower than policy->max, then we need to
+		 * readjust policy->max.
+		 *
+		 * But, if clipped_freq is greater than policy->max, we don't
+		 * need to do anything.
+		 *
+		 * Similarly, if policy minimum set by the user is less than
+		 * the floor_frequency, then adjust the policy->min.
+		 */
+		clipped_freq = cpufreq_cdev->clipped_freq;
+		floor_freq = cpufreq_cdev->floor_freq;
+#ifdef CONFIG_ARCH_QCOM
+		cpufreq_verify_within_limits(policy, floor_freq, clipped_freq);
+#else
+		if (policy->max > clipped_freq || policy->min < floor_freq)
+			cpufreq_verify_within_limits(policy, floor_freq,
+							clipped_freq);
+#endif
+		break;
+	}
+
+	mutex_unlock(&cooling_list_lock);
+
+	return NOTIFY_OK;
+}
+
+#ifdef CONFIG_ARCH_QCOM
+void cpu_limits_set_level(unsigned int cpu, unsigned int max_freq)
+{
+	struct cpufreq_cooling_device *cpufreq_cdev;
+	struct thermal_cooling_device *cdev;
+	unsigned int cdev_cpu;
+	unsigned int level;
+
+	list_for_each_entry(cpufreq_cdev, &cpufreq_cdev_list, node) {
+		sscanf(cpufreq_cdev->cdev->type, "thermal-cpufreq-%d", &cdev_cpu);
+		if (cdev_cpu == cpu) {
+                  //solve the max CPU limit not set by dongchangsicheng 2022/05/17
+			for (level = 0; level <= cpufreq_cdev->max_level; level++) {
+				int target_freq = cpufreq_cdev->em->table[level].frequency;
+				if (max_freq <= target_freq) {
+					cdev = cpufreq_cdev->cdev;
+					if (cdev){
+						cdev->ops->set_cur_state(cdev, cpufreq_cdev->max_level - level);
+                                        }
+						
+					break;
+				}
+			}
+
+			break;
+		}
+	}
+}
+#endif
+
+#ifdef CONFIG_ENERGY_MODEL
 /**
  * get_level: Find the level for a particular frequency
  * @cpufreq_cdev: cpufreq_cdev for which the property is required
@@ -180,6 +279,193 @@ static u32 get_dynamic_power(struct cpufreq_cooling_device *cpufreq_cdev,
 	return (raw_cpu_power * cpufreq_cdev->last_load) / 100;
 }
 
+/* cpufreq cooling device callback functions are defined below */
+
+/**
+ * cpufreq_get_max_state - callback function to get the max cooling state.
+ * @cdev: thermal cooling device pointer.
+ * @state: fill this variable with the max cooling state.
+ *
+ * Callback for the thermal cooling device to return the cpufreq
+ * max cooling state.
+ *
+ * Return: 0 on success, an error code otherwise.
+ */
+static int cpufreq_get_max_state(struct thermal_cooling_device *cdev,
+				 unsigned long *state)
+{
+	struct cpufreq_cooling_device *cpufreq_cdev = cdev->devdata;
+
+	*state = cpufreq_cdev->max_level;
+	return 0;
+}
+
+/**
+ * cpufreq_get_min_state - callback function to get the device floor state.
+ * @cdev: thermal cooling device pointer.
+ * @state: fill this variable with the cooling device floor.
+ *
+ * Callback for the thermal cooling device to return the cpufreq
+ * floor state.
+ *
+ * Return: 0 on success, an error code otherwise.
+ */
+static int cpufreq_get_min_state(struct thermal_cooling_device *cdev,
+				 unsigned long *state)
+{
+	struct cpufreq_cooling_device *cpufreq_cdev = cdev->devdata;
+
+	*state = cpufreq_cdev->cpufreq_floor_state;
+
+	return 0;
+}
+
+/**
+ * cpufreq_get_cur_state - callback function to get the current cooling state.
+ * @cdev: thermal cooling device pointer.
+ * @state: fill this variable with the current cooling state.
+ *
+ * Callback for the thermal cooling device to return the cpufreq
+ * current cooling state.
+ *
+ * Return: 0 on success, an error code otherwise.
+ */
+static int cpufreq_get_cur_state(struct thermal_cooling_device *cdev,
+				 unsigned long *state)
+{
+	struct cpufreq_cooling_device *cpufreq_cdev = cdev->devdata;
+
+	*state = cpufreq_cdev->cpufreq_state;
+
+	return 0;
+}
+
+static unsigned int get_state_freq(struct cpufreq_cooling_device *cpufreq_cdev,
+			      unsigned long state)
+{
+	struct cpufreq_policy *policy;
+	unsigned long idx;
+
+#ifdef CONFIG_ENERGY_MODEL
+	/* Use the Energy Model table if available */
+	if (cpufreq_cdev->em) {
+		idx = cpufreq_cdev->max_level - state;
+		return cpufreq_cdev->em->table[idx].frequency;
+	}
+#endif
+
+	/* Otherwise, fallback on the CPUFreq table */
+	policy = cpufreq_cdev->policy;
+	if (policy->freq_table_sorted == CPUFREQ_TABLE_SORTED_ASCENDING)
+		idx = cpufreq_cdev->max_level - state;
+	else
+		idx = state;
+
+	return policy->freq_table[idx].frequency;
+}
+
+/**
+ * cpufreq_set_min_state - callback function to set the device floor state.
+ * @cdev: thermal cooling device pointer.
+ * @state: set this variable to the current cooling state.
+ *
+ * Callback for the thermal cooling device to change the cpufreq
+ * floor state.
+ *
+ * Return: 0 on success, an error code otherwise.
+ */
+static int cpufreq_set_min_state(struct thermal_cooling_device *cdev,
+				 unsigned long state)
+{
+	struct cpufreq_cooling_device *cpufreq_cdev = cdev->devdata;
+	unsigned int cpu = cpufreq_cdev->policy->cpu;
+	unsigned int floor_freq;
+
+	if (state > cpufreq_cdev->max_level)
+		state = cpufreq_cdev->max_level;
+
+	if (cpufreq_cdev->cpufreq_floor_state == state)
+		return 0;
+
+	cpufreq_cdev->cpufreq_floor_state = state;
+	floor_freq = get_state_freq(cpufreq_cdev, state);
+	cpufreq_cdev->floor_freq = floor_freq;
+
+	/*
+	 * Check if the device has a platform mitigation function that
+	 * can handle the CPU freq mitigation, if not, notify cpufreq
+	 * framework.
+	 */
+	if (cpufreq_cdev->plat_ops &&
+		cpufreq_cdev->plat_ops->floor_limit)
+		cpufreq_cdev->plat_ops->floor_limit(cpu, floor_freq);
+	else
+		cpufreq_update_policy(cpu);
+
+	return 0;
+}
+
+/**
+ * cpufreq_set_cur_state - callback function to set the current cooling state.
+ * @cdev: thermal cooling device pointer.
+ * @state: set this variable to the current cooling state.
+ *
+ * Callback for the thermal cooling device to change the cpufreq
+ * current cooling state.
+ *
+ * Return: 0 on success, an error code otherwise.
+ */
+static int cpufreq_set_cur_state(struct thermal_cooling_device *cdev,
+				 unsigned long state)
+{
+	struct cpufreq_cooling_device *cpufreq_cdev = cdev->devdata;
+	unsigned int clip_freq;
+
+	/* Request state should be less than max_level */
+	if (WARN_ON(state > cpufreq_cdev->max_level))
+#ifdef CONFIG_ARCH_QCOM
+		state = cpufreq_cdev->max_level;
+#else
+		return -EINVAL;
+#endif
+
+	/* Check if the old cooling action is same as new cooling action */
+	if (cpufreq_cdev->cpufreq_state == state)
+		return 0;
+
+	clip_freq = get_state_freq(cpufreq_cdev, state);
+	cpufreq_cdev->cpufreq_state = state;
+	cpufreq_cdev->clipped_freq = clip_freq;
+
+	/* Check if the device has a platform mitigation function that
+	 * can handle the CPU freq mitigation, if not, notify cpufreq
+	 * framework.
+	 */
+#ifdef CONFIG_ARCH_QCOM
+	if (USE_LMH_DEV && cpufreq_cdev->plat_ops) {
+		if (cpufreq_cdev->plat_ops->ceil_limit)
+			cpufreq_cdev->plat_ops->ceil_limit(
+				cpufreq_cdev->policy->cpu, clip_freq);
+		get_online_cpus();
+		cpufreq_update_policy(cpufreq_cdev->policy->cpu);
+		put_online_cpus();
+	} else {
+		get_online_cpus();
+		cpufreq_update_policy(cpufreq_cdev->policy->cpu);
+		put_online_cpus();
+	}
+#else
+	if (cpufreq_cdev->plat_ops &&
+		cpufreq_cdev->plat_ops->ceil_limit)
+		cpufreq_cdev->plat_ops->ceil_limit(cpufreq_cdev->policy->cpu,
+							clip_freq);
+	else
+		cpufreq_update_policy(cpufreq_cdev->policy->cpu);
+#endif
+	return 0;
+}
+
+#ifdef CONFIG_ENERGY_MODEL
 /**
  * cpufreq_get_requested_power() - get the current power
  * @cdev:	&thermal_cooling_device pointer
@@ -577,6 +863,14 @@ __cpufreq_cooling_register(struct device_node *np,
 	list_add(&cpufreq_cdev->node, &cpufreq_cdev_list);
 	mutex_unlock(&cooling_list_lock);
 
+#ifdef CONFIG_ARCH_QCOM
+	if (first)
+#else
+	if (first && !cpufreq_cdev->plat_ops)
+#endif
+		cpufreq_register_notifier(&thermal_cpufreq_notifier_block,
+					  CPUFREQ_POLICY_NOTIFIER);
+
 	return cdev;
 
 remove_qos_req:
@@ -674,9 +968,20 @@ void cpufreq_cooling_unregister(struct thermal_cooling_device *cdev)
 	list_del(&cpufreq_cdev->node);
 	mutex_unlock(&cooling_list_lock);
 
-	thermal_cooling_device_unregister(cdev);
-	freq_qos_remove_request(&cpufreq_cdev->qos_req);
-	ida_simple_remove(&cpufreq_ida, cpufreq_cdev->id);
+	if (last) {
+#ifdef CONFIG_ARCH_QCOM
+		cpufreq_unregister_notifier(
+				&thermal_cpufreq_notifier_block,
+				CPUFREQ_POLICY_NOTIFIER);
+#else
+		if (!cpufreq_cdev->plat_ops)
+			cpufreq_unregister_notifier(
+					&thermal_cpufreq_notifier_block,
+					CPUFREQ_POLICY_NOTIFIER);
+#endif
+	}
+
+	thermal_cooling_device_unregister(cpufreq_cdev->cdev);
 	kfree(cpufreq_cdev->idle_time);
 	kfree(cpufreq_cdev);
 }

@@ -2241,3 +2241,4 @@ config MFD_SLG51002
 
 endmenu
 endif
+source "drivers/mfd/maxim/Kconfig"

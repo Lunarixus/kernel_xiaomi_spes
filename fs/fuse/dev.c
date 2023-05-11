@@ -205,36 +205,18 @@ static unsigned int fuse_req_hash(u64 unique)
 	return hash_long(unique & ~FUSE_INT_REQ_BIT, FUSE_PQ_HASH_BITS);
 }
 
-/**
- * A new request is available, wake fiq->waitq
- */
-static void fuse_dev_wake_and_unlock(struct fuse_iqueue *fiq, bool sync)
-__releases(fiq->lock)
-{
-	if (sync)
-		wake_up_sync(&fiq->waitq);
-	else
-		wake_up(&fiq->waitq);
-	kill_fasync(&fiq->fasync, SIGIO, POLL_IN);
-	spin_unlock(&fiq->lock);
-}
-
-const struct fuse_iqueue_ops fuse_dev_fiq_ops = {
-	.wake_forget_and_unlock		= fuse_dev_wake_and_unlock,
-	.wake_interrupt_and_unlock	= fuse_dev_wake_and_unlock,
-	.wake_pending_and_unlock	= fuse_dev_wake_and_unlock,
-};
-EXPORT_SYMBOL_GPL(fuse_dev_fiq_ops);
-
-static void queue_request_and_unlock(struct fuse_iqueue *fiq,
-				     struct fuse_req *req, bool sync)
-__releases(fiq->lock)
+static void queue_request(struct fuse_iqueue *fiq, struct fuse_req *req,
+				bool sync)
 {
 	req->in.h.len = sizeof(struct fuse_in_header) +
 		fuse_len_args(req->args->in_numargs,
 			      (struct fuse_arg *) req->args->in_args);
 	list_add_tail(&req->list, &fiq->pending);
-	fiq->ops->wake_pending_and_unlock(fiq, sync);
+	if (sync)
+		wake_up_sync(&fiq->waitq);
+	else
+		wake_up(&fiq->waitq);
+	kill_fasync(&fiq->fasync, SIGIO, POLL_IN);
 }
 
 void fuse_queue_forget(struct fuse_conn *fc, struct fuse_forget_link *forget,
@@ -274,7 +256,8 @@ static void flush_bg_queue(struct fuse_conn *fc)
 		fc->active_background++;
 		spin_lock(&fiq->lock);
 		req->in.h.unique = fuse_get_unique(fiq);
-		queue_request_and_unlock(fiq, req, false);
+		queue_request(fiq, req, 0);
+		spin_unlock(&fiq->lock);
 	}
 }
 
@@ -431,6 +414,7 @@ static void __fuse_request_send(struct fuse_req *req)
 		req->out.h.error = -ENOTCONN;
 	} else {
 		req->in.h.unique = fuse_get_unique(fiq);
+		queue_request(fiq, req, 1);
 		/* acquire extra reference, since request is still needed
 		   after fuse_request_end() */
 		__fuse_get_request(req);
@@ -610,11 +594,8 @@ static int fuse_simple_notify_reply(struct fuse_mount *fm,
 
 	spin_lock(&fiq->lock);
 	if (fiq->connected) {
-		queue_request_and_unlock(fiq, req, false);
-	} else {
-		err = -ENODEV;
-		spin_unlock(&fiq->lock);
-		fuse_put_request(req);
+		queue_request(fiq, req, 0);
+		err = 0;
 	}
 
 	return err;

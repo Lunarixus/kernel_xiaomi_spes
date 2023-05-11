@@ -25,6 +25,15 @@ struct inode;
 struct pci_dev;
 struct pci_controller;
 
+#ifdef CONFIG_TARGET_PROJECT_K7T
+
+#define DOZE_MIN_BRIGHTNESS_LEVEL	5
+enum {
+	DOZE_BRIGHTNESS_INVALID = 0,
+	DOZE_BRIGHTNESS_HBM,
+	DOZE_BRIGHTNESS_LBM,
+};
+#endif
 
 /**
  * enum drm_switch_power - power state of drm device
@@ -376,9 +385,28 @@ struct drm_device {
 	struct drm_local_map *agp_buffer_map;
 	unsigned int agp_buffer_token;
 
-	/* Scatter gather memory */
-	struct drm_sg_mem *sg;
-#endif
+	struct drm_mode_config mode_config;	/**< Current mode config */
+
+	/** \name GEM information */
+	/*@{ */
+	struct mutex object_name_lock;
+	struct idr object_name_idr;
+	struct drm_vma_offset_manager *vma_offset_manager;
+	/*@} */
+	int switch_power_state;
+	int doze_brightness;
+	/*add for thermal begin*/
+	int doze_state;
+	int pre_state;
+	/*add for thermal end*/
+
+	/**
+	 * @fb_helper:
+	 *
+	 * Pointer to the fbdev emulation structure.
+	 * Set by drm_fb_helper_init() and cleared by drm_fb_helper_fini().
+	 */
+	struct drm_fb_helper *fb_helper;
 };
 
 #endif

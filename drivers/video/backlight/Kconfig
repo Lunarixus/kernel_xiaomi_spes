@@ -449,12 +449,19 @@ config BACKLIGHT_RAVE_SP
 	help
 	  Support for backlight control on RAVE SP device.
 
-config BACKLIGHT_LED
-	tristate "Generic LED based Backlight Driver"
-	depends on LEDS_CLASS && OF
+config LCD_BIAS
+	tristate "LCD Bias driver for bias"
+	depends on I2C
 	help
-	  If you have a LCD backlight adjustable by LED class driver, say Y
-	  to enable this driver.
+	  This option enables support for the LCD bias using
+	  bias chip.
+
+config LCD_BKL
+	tristate "LCD BKL driver for bkl"
+	depends on I2C
+	help
+	  This option enables support for the LCD bias using
+	  bias chip.
 
 endif # BACKLIGHT_CLASS_DEVICE
 

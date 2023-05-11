@@ -408,8 +408,7 @@ static size_t copy_page_to_iter_pipe(struct page *page, size_t offset, size_t by
 
 	buf->ops = &page_cache_pipe_buf_ops;
 	buf->flags = 0;
-	get_page(page);
-	buf->page = page;
+	get_page(buf->page = page);
 	buf->offset = offset;
 	buf->len = bytes;
 
@@ -542,17 +541,13 @@ static size_t push_pipe(struct iov_iter *i, size_t size,
 		struct page *page = alloc_page(GFP_USER);
 		if (!page)
 			break;
-
-		buf->ops = &default_pipe_buf_ops;
-		buf->flags = 0;
-		buf->page = page;
-		buf->offset = 0;
-		buf->len = min_t(ssize_t, left, PAGE_SIZE);
-		left -= buf->len;
-		iter_head++;
-		pipe->head = iter_head;
-
-		if (left == 0)
+		pipe->nrbufs++;
+		pipe->bufs[idx].ops = &default_pipe_buf_ops;
+		pipe->bufs[idx].flags = 0;
+		pipe->bufs[idx].page = page;
+		pipe->bufs[idx].offset = 0;
+		if (left <= PAGE_SIZE) {
+			pipe->bufs[idx].len = left;
 			return size;
 	}
 	return size - left;

@@ -716,64 +716,15 @@ config CHARGER_CROS_USBPD
 	  what is connected to USB PD ports from the EC and converts
 	  that into power_supply properties.
 
-config CHARGER_SC2731
-	tristate "Spreadtrum SC2731 charger driver"
-	depends on MFD_SC27XX_PMIC || COMPILE_TEST
-	help
-	  Say Y here to enable support for battery charging with SC2731
-	  PMIC chips.
-
-config FUEL_GAUGE_SC27XX
-	tristate "Spreadtrum SC27XX fuel gauge driver"
-	depends on MFD_SC27XX_PMIC || COMPILE_TEST
-	depends on IIO
-	help
-	  Say Y here to enable support for fuel gauge with SC27XX
-	  PMIC chips.
-
-config CHARGER_UCS1002
-	tristate "Microchip UCS1002 USB Port Power Controller"
+config NOPMI_CHARGER
+	tristate "NOPMI Charger Support"
 	depends on I2C
-	depends on OF
-	depends on REGULATOR
-	select REGMAP_I2C
 	help
-	  Say Y to enable support for Microchip UCS1002 Programmable
-	  USB Port Power Controller with Charger Emulation.
+	  Say Y to include support for NOPMI Charger.
 
-config CHARGER_BD70528
-	tristate "ROHM bd70528 charger driver"
-	depends on MFD_ROHM_BD70528
-	select LINEAR_RANGES
-	help
-	  Say Y here to enable support for getting battery status
-	  information and altering charger configurations from charger
-	  block of the ROHM BD70528 Power Management IC.
-
-config CHARGER_BD99954
-	tristate "ROHM bd99954 charger driver"
-	depends on I2C
-	select LINEAR_RANGES
-	help
-	  Say Y here to enable support for getting battery and charger
-	  information and altering charger configurations from the ROHM
-	  BD99954 charger IC.
-
-config CHARGER_WILCO
-	tristate "Wilco EC based charger for ChromeOS"
-	depends on WILCO_EC
-	help
-	  Say Y here to enable control of the charging routines performed
-	  by the Embedded Controller on the Chromebook named Wilco. Further
-	  information can be found in
-	  Documentation/ABI/testing/sysfs-class-power-wilco
-
-config RN5T618_POWER
-	tristate "RN5T618 charger/fuel gauge support"
-	depends on MFD_RN5T618
-	help
-	  Say Y here to have support for RN5T618 PMIC family fuel gauge and charger.
-	  This driver can also be built as a module. If so, the module will be
-	  called rn5t618_power.
+source "drivers/power/supply/qcom/Kconfig"
+source "drivers/power/supply/maxim/Kconfig"
+source "drivers/power/supply/nopmi/Kconfig"
+source "drivers/power/supply/battery_secret/Kconfig"
 
 endif # POWER_SUPPLY

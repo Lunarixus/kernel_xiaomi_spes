@@ -1651,7 +1651,6 @@ static void mmc_blk_read_single(struct mmc_queue *mq, struct request *req)
 	struct mmc_card *card = mq->card;
 	struct mmc_host *host = card->host;
 	blk_status_t error = BLK_STS_OK;
-	size_t bytes_per_read = queue_physical_block_size(mq->queue);
 
 	do {
 		u32 status;
@@ -1661,14 +1660,14 @@ static void mmc_blk_read_single(struct mmc_queue *mq, struct request *req)
 		while (retries++ <= MMC_READ_SINGLE_RETRIES) {
 			mmc_blk_rw_rq_prep(mqrq, card, 1, mq);
 
-			mmc_wait_for_req(host, mrq);
+            mmc_wait_for_req(host, mrq);
 
-			err = mmc_send_status(card, &status);
+            err = mmc_send_status(card, &status);
 			if (err)
 				goto error_exit;
 
 			if (!mmc_host_is_spi(host) &&
-			    !mmc_ready_for_data(status)) {
+			    !mmc_blk_in_tran_state(status)) {
 				err = mmc_blk_fix_state(card, req);
 				if (err)
 					goto error_exit;

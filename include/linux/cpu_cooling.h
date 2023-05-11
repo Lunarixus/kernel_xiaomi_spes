@@ -27,6 +27,10 @@ struct cpufreq_policy;
 struct thermal_cooling_device *
 cpufreq_cooling_register(struct cpufreq_policy *policy);
 
+#ifdef CONFIG_ARCH_QCOM
+void cpu_limits_set_level(unsigned int cpu, unsigned int max_freq);
+#endif
+
 /**
  * cpufreq_cooling_unregister - function to remove cpufreq cooling device.
  * @cdev: thermal cooling device pointer.

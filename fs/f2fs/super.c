@@ -152,15 +152,8 @@ enum {
 	Opt_compress_algorithm,
 	Opt_compress_log_size,
 	Opt_compress_extension,
-	Opt_nocompress_extension,
-	Opt_compress_chksum,
-	Opt_compress_mode,
-	Opt_compress_cache,
-	Opt_atgc,
 	Opt_gc_merge,
 	Opt_nogc_merge,
-	Opt_discard_unit,
-	Opt_memory_mode,
 	Opt_err,
 };
 
@@ -230,15 +223,8 @@ static match_table_t f2fs_tokens = {
 	{Opt_compress_algorithm, "compress_algorithm=%s"},
 	{Opt_compress_log_size, "compress_log_size=%u"},
 	{Opt_compress_extension, "compress_extension=%s"},
-	{Opt_nocompress_extension, "nocompress_extension=%s"},
-	{Opt_compress_chksum, "compress_chksum"},
-	{Opt_compress_mode, "compress_mode=%s"},
-	{Opt_compress_cache, "compress_cache"},
-	{Opt_atgc, "atgc"},
 	{Opt_gc_merge, "gc_merge"},
 	{Opt_nogc_merge, "nogc_merge"},
-	{Opt_discard_unit, "discard_unit=%s"},
-	{Opt_memory_mode, "memory=%s"},
 	{Opt_err, NULL},
 };
 
@@ -1071,7 +1057,6 @@ static int parse_options(struct super_block *sb, char *options, bool is_remount)
 		case Opt_nocheckpoint_merge:
 			clear_opt(sbi, MERGE_CHECKPOINT);
 			break;
-#ifdef CONFIG_F2FS_FS_COMPRESSION
 		case Opt_compress_algorithm:
 			if (!f2fs_sb_has_compression(sbi)) {
 				f2fs_info(sbi, "Image doesn't support compression");
@@ -1165,104 +1150,11 @@ static int parse_options(struct super_block *sb, char *options, bool is_remount)
 			F2FS_OPTION(sbi).compress_ext_cnt++;
 			kfree(name);
 			break;
-		case Opt_nocompress_extension:
-			if (!f2fs_sb_has_compression(sbi)) {
-				f2fs_info(sbi, "Image doesn't support compression");
-				break;
-			}
-			name = match_strdup(&args[0]);
-			if (!name)
-				return -ENOMEM;
-
-			noext = F2FS_OPTION(sbi).noextensions;
-			noext_cnt = F2FS_OPTION(sbi).nocompress_ext_cnt;
-
-			if (strlen(name) >= F2FS_EXTENSION_LEN ||
-				noext_cnt >= COMPRESS_EXT_NUM) {
-				f2fs_err(sbi,
-					"invalid extension length/number");
-				kfree(name);
-				return -EINVAL;
-			}
-
-			strcpy(noext[noext_cnt], name);
-			F2FS_OPTION(sbi).nocompress_ext_cnt++;
-			kfree(name);
-			break;
-		case Opt_compress_chksum:
-			F2FS_OPTION(sbi).compress_chksum = true;
-			break;
-		case Opt_compress_mode:
-			name = match_strdup(&args[0]);
-			if (!name)
-				return -ENOMEM;
-			if (!strcmp(name, "fs")) {
-				F2FS_OPTION(sbi).compress_mode = COMPR_MODE_FS;
-			} else if (!strcmp(name, "user")) {
-				F2FS_OPTION(sbi).compress_mode = COMPR_MODE_USER;
-			} else {
-				kfree(name);
-				return -EINVAL;
-			}
-			kfree(name);
-			break;
-		case Opt_compress_cache:
-			set_opt(sbi, COMPRESS_CACHE);
-			break;
-#else
-		case Opt_compress_algorithm:
-		case Opt_compress_log_size:
-		case Opt_compress_extension:
-		case Opt_nocompress_extension:
-		case Opt_compress_chksum:
-		case Opt_compress_mode:
-		case Opt_compress_cache:
-			f2fs_info(sbi, "compression options not supported");
-			break;
-#endif
-		case Opt_atgc:
-			set_opt(sbi, ATGC);
-			break;
 		case Opt_gc_merge:
 			set_opt(sbi, GC_MERGE);
 			break;
 		case Opt_nogc_merge:
 			clear_opt(sbi, GC_MERGE);
-			break;
-		case Opt_discard_unit:
-			name = match_strdup(&args[0]);
-			if (!name)
-				return -ENOMEM;
-			if (!strcmp(name, "block")) {
-				F2FS_OPTION(sbi).discard_unit =
-						DISCARD_UNIT_BLOCK;
-			} else if (!strcmp(name, "segment")) {
-				F2FS_OPTION(sbi).discard_unit =
-						DISCARD_UNIT_SEGMENT;
-			} else if (!strcmp(name, "section")) {
-				F2FS_OPTION(sbi).discard_unit =
-						DISCARD_UNIT_SECTION;
-			} else {
-				kfree(name);
-				return -EINVAL;
-			}
-			kfree(name);
-			break;
-		case Opt_memory_mode:
-			name = match_strdup(&args[0]);
-			if (!name)
-				return -ENOMEM;
-			if (!strcmp(name, "normal")) {
-				F2FS_OPTION(sbi).memory_mode =
-						MEMORY_MODE_NORMAL;
-			} else if (!strcmp(name, "low")) {
-				F2FS_OPTION(sbi).memory_mode =
-						MEMORY_MODE_LOW;
-			} else {
-				kfree(name);
-				return -EINVAL;
-			}
-			kfree(name);
 			break;
 		default:
 			f2fs_err(sbi, "Unrecognized mount option \"%s\" or missing value",
@@ -1386,6 +1278,9 @@ static struct inode *f2fs_alloc_inode(struct super_block *sb)
 	INIT_LIST_HEAD(&fi->gdirty_list);
 	INIT_LIST_HEAD(&fi->inmem_ilist);
 	INIT_LIST_HEAD(&fi->inmem_pages);
+#ifdef CONFIG_F2FS_CP_OPT
+	INIT_LIST_HEAD(&fi->xattr_dirty_list);
+#endif
 	mutex_init(&fi->inmem_lock);
 	init_f2fs_rwsem(&fi->i_gc_rwsem[READ]);
 	init_f2fs_rwsem(&fi->i_gc_rwsem[WRITE]);
@@ -1670,8 +1565,9 @@ int f2fs_sync_fs(struct super_block *sb, int sync)
 	if (unlikely(is_sbi_flag_set(sbi, SBI_POR_DOING)))
 		return -EAGAIN;
 
-	if (sync)
+	 if (sync)
 		err = f2fs_issue_checkpoint(sbi);
+	f2fs_trace_ios(NULL, 1);
 
 	return err;
 }
@@ -1689,11 +1585,9 @@ static int f2fs_freeze(struct super_block *sb)
 	if (is_sbi_flag_set(F2FS_SB(sb), SBI_IS_DIRTY))
 		return -EINVAL;
 
-	/* Let's flush checkpoints and stop the thread. */
-	f2fs_flush_ckpt_thread(F2FS_SB(sb));
-
-	/* to avoid deadlock on f2fs_evict_inode->SB_FREEZE_FS */
-	set_sbi_flag(F2FS_SB(sb), SBI_IS_FREEZING);
+	/* ensure no checkpoint required */
+	if (!llist_empty(&F2FS_SB(sb)->cprc_info.issue_list))
+		return -EINVAL;
 	return 0;
 }
 
@@ -2022,7 +1916,7 @@ static int f2fs_show_options(struct seq_file *seq, struct dentry *root)
 				F2FS_OPTION(sbi).unusable_cap);
 	if (test_opt(sbi, MERGE_CHECKPOINT))
 		seq_puts(seq, ",checkpoint_merge");
-	else
+	 else
 		seq_puts(seq, ",nocheckpoint_merge");
 	if (F2FS_OPTION(sbi).fsync_mode == FSYNC_MODE_POSIX)
 		seq_printf(seq, ",fsync_mode=%s", "posix");
@@ -2086,9 +1980,10 @@ static void default_options(struct f2fs_sb_info *sbi)
 	F2FS_OPTION(sbi).unusable_cap = 0;
 	sbi->sb->s_flags |= SB_LAZYTIME;
 	set_opt(sbi, FLUSH_MERGE);
-	if (f2fs_hw_support_discard(sbi) || f2fs_hw_should_discard(sbi))
-		set_opt(sbi, DISCARD);
-	if (f2fs_sb_has_blkzoned(sbi)) {
+	set_opt(sbi, DISCARD);
+	set_opt(sbi, GC_MERGE);
+	set_opt(sbi, MERGE_CHECKPOINT);
+	if (f2fs_sb_has_blkzoned(sbi))
 		F2FS_OPTION(sbi).fs_mode = FS_MODE_LFS;
 		F2FS_OPTION(sbi).discard_unit = DISCARD_UNIT_SECTION;
 	} else {
@@ -2373,6 +2268,19 @@ static int f2fs_remount(struct super_block *sb, int *flags, char *data)
 			goto restore_gc;
 		}
 		need_stop_ckpt = true;
+	}
+
+	 if (!test_opt(sbi, DISABLE_CHECKPOINT) &&
+			test_opt(sbi, MERGE_CHECKPOINT)) {
+		err = f2fs_start_ckpt_thread(sbi);
+		if (err) {
+			f2fs_err(sbi,
+				"Failed to start F2FS issue_checkpoint_thread (%d)",
+				err);
+			goto restore_gc;
+		}
+	} else {
+		 f2fs_stop_ckpt_thread(sbi);
 	}
 
 	/*
@@ -4263,6 +4171,10 @@ try_onemore:
 	}
 	mutex_init(&sbi->flush_lock);
 
+#ifdef CONFIG_F2FS_CP_OPT
+	INIT_LIST_HEAD(&sbi->xattr_set_dir_ilist);
+	spin_lock_init(&sbi->xattr_set_dir_ilist_lock);
+#endif
 	f2fs_init_extent_cache_info(sbi);
 
 	f2fs_init_ino_entry_info(sbi);
@@ -4271,13 +4183,13 @@ try_onemore:
 
 	/* setup checkpoint request control and start checkpoint issue thread */
 	f2fs_init_ckpt_req_control(sbi);
-	if (!f2fs_readonly(sb) && !test_opt(sbi, DISABLE_CHECKPOINT) &&
+	 if (!test_opt(sbi, DISABLE_CHECKPOINT) &&
 			test_opt(sbi, MERGE_CHECKPOINT)) {
 		err = f2fs_start_ckpt_thread(sbi);
 		if (err) {
 			f2fs_err(sbi,
-			    "Failed to start F2FS issue_checkpoint_thread (%d)",
-			    err);
+				"Failed to start F2FS issue_checkpoint_thread (%d)",
+				err);
 			goto stop_ckpt_thread;
 		}
 	}
@@ -4511,7 +4423,7 @@ free_sm:
 	f2fs_destroy_segment_manager(sbi);
 	f2fs_destroy_post_read_wq(sbi);
 stop_ckpt_thread:
-	f2fs_stop_ckpt_thread(sbi);
+	 f2fs_stop_ckpt_thread(sbi);
 free_devices:
 	destroy_device_list(sbi);
 	kvfree(sbi->ckpt);

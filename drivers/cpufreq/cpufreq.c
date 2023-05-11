@@ -29,6 +29,11 @@
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
 #include <linux/tick.h>
+#include <linux/sched/topology.h>
+#include <linux/sched/sysctl.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+
 #include <trace/events/power.h>
 #include <trace/hooks/cpufreq.h>
 
@@ -86,7 +91,38 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 			      struct cpufreq_governor *new_gov,
 			      unsigned int new_pol);
 
-/*
+static int cpumaxfreq_show(struct seq_file *m, void *v)
+{
+	unsigned int maxfreq, freq;
+	int i;
+
+	maxfreq = cpufreq_quick_get_max(0);
+	for_each_possible_cpu(i) {
+		freq = cpufreq_quick_get_max(i);
+		if (freq > maxfreq)
+			maxfreq = freq;
+	}
+	/* value is used for setting cpumaxfreq */
+	maxfreq = 2400000;  //need to fix,it's temp
+	maxfreq /= 10000;
+	seq_printf(m,"%lu.%02lu", maxfreq/100, maxfreq%100);
+
+	return 0;
+}
+
+static int cpumaxfreq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, &cpumaxfreq_show, NULL);
+}
+
+static const struct file_operations proc_cpumaxfreq_operations = {
+	.open       = cpumaxfreq_open,
+	.read       = seq_read,
+	.llseek     = seq_lseek,
+	.release    = seq_release,
+};
+
+/**
  * Two notifier lists: the "policy" list is involved in the
  * validation process for a new CPU frequency policy; the
  * "transition" list for kernel code that needs to handle
@@ -2481,8 +2517,32 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	new_data.freq_table = policy->freq_table;
 	new_data.cpu = policy->cpu;
 	/*
-	 * PM QoS framework collects all the requests from users and provide us
-	 * the final aggregated value here.
+	* This check works well when we store new min/max freq attributes,
+	* because new_policy is a copy of policy with one field updated.
+	*/
+	if (new_policy->min > new_policy->max)
+		return -EINVAL;
+
+	/* verify the cpu speed can be set within this limit */
+	ret = cpufreq_driver->verify(new_policy);
+	if (ret)
+		return ret;
+
+	/* adjust if necessary - all reasons */
+	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
+			CPUFREQ_ADJUST, new_policy);
+
+	/* adjust if necessary - hardware incompatibility */
+	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
+			CPUFREQ_INCOMPATIBLE, new_policy);
+
+	/* limit cpufreq by thermal - lc-zhenghao */
+	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
+			CPUFREQ_THERMAL, new_policy);
+
+	/*
+	 * verify the cpu speed can be set within this limit, which might be
+	 * different to the first one
 	 */
 	new_data.min = freq_qos_read_value(&policy->constraints, FREQ_QOS_MIN);
 	new_data.max = freq_qos_read_value(&policy->constraints, FREQ_QOS_MAX);
@@ -2873,6 +2933,7 @@ static int __init cpufreq_core_init(void)
 
 	cpufreq_global_kobject = kobject_create_and_add("cpufreq", &cpu_subsys.dev_root->kobj);
 	BUG_ON(!cpufreq_global_kobject);
+	proc_create("cpumaxfreq", 0, NULL, &proc_cpumaxfreq_operations);
 
 	if (!strlen(default_governor))
 		strncpy(default_governor, gov->name, CPUFREQ_NAME_LEN);

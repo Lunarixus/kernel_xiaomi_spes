@@ -141,6 +141,13 @@ config TIFM_CORE
 	  To compile this driver as a module, choose M here: the module will
 	  be called tifm_core.
 
+config ST21NFC
+	bool "ST Microelectronics ST21NFC NFC Controller Driver"
+	depends on I2C
+	help
+	  ST Microelectronics ST21NFC Near Field Communication controller
+	  support.
+
 config TIFM_7XX1
 	tristate "TI Flash Media PCI74xx/PCI76xx host adapter support"
 	depends on PCI && TIFM_CORE
@@ -555,3 +562,38 @@ source "drivers/misc/sscoredump/Kconfig"
 source "drivers/misc/sbb-mux/Kconfig"
 source "drivers/misc/bbdpl/Kconfig"
 endmenu
+
+config OKL4_USER_VIPC
+	bool "OKL4 Virtual Platform IPC Driver"
+	depends on OKL4_GUEST
+	default n
+	help
+	  Say Y here if you want to enable the driver which exposes the OKL4
+	  Shared Buffer IPC mechanism for accessing and initializing buffers
+	  and vIRQs associated with IPC between two cells.
+
+config OKL4_LINK_SHBUF
+	    tristate "OKL4 link with shared buffer transport"
+	    default y
+	    depends on OKL4_GUEST
+	    help
+	      Enable driver for OKL4 inter-cell links using the "shared-buffer"
+	      transport. This driver presents the link to Linux as a character device
+	      which can be written to or read from to access the shared memory. An ioctl
+	      on the device is used to send a virtual interrupt to the partner cell.
+
+config ANT_CHECK
+       tristate "ant check gpio"
+       help
+         Say 'y' here to include support for the QTI QPNP MISC
+         peripheral. The MISC peripheral holds the USB ID interrupt
+         and the driver provides an API to check if this interrupt
+         is available on the current PMIC chip.
+
+config ANT_CHECK_DIV
+       tristate "ant check div gpio"
+       help
+         Say 'y' here to include support for the QTI QPNP MISC
+         peripheral. The MISC peripheral holds the USB ID interrupt
+         and the driver provides an API to check if this interrupt
+         is available on the current PMIC chip.

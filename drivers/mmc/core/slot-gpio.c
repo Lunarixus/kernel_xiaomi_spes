@@ -34,9 +34,8 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 	struct mmc_gpio *ctx = host->slot.handler_priv;
 	bool allow = true;
 
-	trace_android_vh_mmc_gpio_cd_irqt(host, &allow);
-	if (!allow)
-		return IRQ_HANDLED;
+	pr_info("%s: cd gpio irq, gpio state %d (CARD_%s)\n",
+		mmc_hostname(host), present, present?"INSERT":"REMOVAL");
 
 	host->trigger_card_event = true;
 	mmc_detect_change(host, msecs_to_jiffies(ctx->cd_debounce_delay_ms));

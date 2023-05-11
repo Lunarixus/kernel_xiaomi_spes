@@ -1637,6 +1637,14 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 
 	trace_f2fs_write_checkpoint(sbi->sb, cpc->reason, "start block_ops");
 
+#ifdef CONFIG_F2FS_CP_OPT
+	/*
+	 * checkpoint will maintain the xattr consistency of dirs,
+	 * so we can remove them from tracking list when do_checkpoint
+	 */
+	f2fs_clear_xattr_set_ilist(sbi);
+#endif
+
 	err = block_operations(sbi);
 	if (err)
 		goto out;
@@ -1753,9 +1761,9 @@ static int __write_checkpoint_sync(struct f2fs_sb_info *sbi)
 	struct cp_control cpc = { .reason = CP_SYNC, };
 	int err;
 
-	f2fs_down_write(&sbi->gc_lock);
+	down_write(&sbi->gc_lock);
 	err = f2fs_write_checkpoint(sbi, &cpc);
-	f2fs_up_write(&sbi->gc_lock);
+	up_write(&sbi->gc_lock);
 
 	return err;
 }
@@ -1843,9 +1851,9 @@ int f2fs_issue_checkpoint(struct f2fs_sb_info *sbi)
 	if (!test_opt(sbi, MERGE_CHECKPOINT) || cpc.reason != CP_SYNC) {
 		int ret;
 
-		f2fs_down_write(&sbi->gc_lock);
+		down_write(&sbi->gc_lock);
 		ret = f2fs_write_checkpoint(sbi, &cpc);
-		f2fs_up_write(&sbi->gc_lock);
+		up_write(&sbi->gc_lock);
 
 		return ret;
 	}
@@ -1858,11 +1866,7 @@ int f2fs_issue_checkpoint(struct f2fs_sb_info *sbi)
 	llist_add(&req.llnode, &cprc->issue_list);
 	atomic_inc(&cprc->queued_ckpt);
 
-	/*
-	 * update issue_list before we wake up issue_checkpoint thread,
-	 * this smp_mb() pairs with another barrier in ___wait_event(),
-	 * see more details in comments of waitqueue_active().
-	 */
+	/* update issue_list before we wake up issue_checkpoint thread */
 	smp_mb();
 
 	if (waitqueue_active(&cprc->ckpt_wait_queue))
@@ -1899,27 +1903,15 @@ int f2fs_start_ckpt_thread(struct f2fs_sb_info *sbi)
 void f2fs_stop_ckpt_thread(struct f2fs_sb_info *sbi)
 {
 	struct ckpt_req_control *cprc = &sbi->cprc_info;
-	struct task_struct *ckpt_task;
 
-	if (!cprc->f2fs_issue_ckpt)
-		return;
+	if (cprc->f2fs_issue_ckpt) {
+		struct task_struct *ckpt_task = cprc->f2fs_issue_ckpt;
 
-	ckpt_task = cprc->f2fs_issue_ckpt;
-	cprc->f2fs_issue_ckpt = NULL;
-	kthread_stop(ckpt_task);
+		cprc->f2fs_issue_ckpt = NULL;
+		kthread_stop(ckpt_task);
 
-	f2fs_flush_ckpt_thread(sbi);
-}
-
-void f2fs_flush_ckpt_thread(struct f2fs_sb_info *sbi)
-{
-	struct ckpt_req_control *cprc = &sbi->cprc_info;
-
-	flush_remained_ckpt_reqs(sbi, NULL);
-
-	/* Let's wait for the previous dispatched checkpoint. */
-	while (atomic_read(&cprc->queued_ckpt))
-		io_schedule_timeout(DEFAULT_IO_TIMEOUT);
+		flush_remained_ckpt_reqs(sbi, NULL);
+	}
 }
 
 void f2fs_init_ckpt_req_control(struct f2fs_sb_info *sbi)

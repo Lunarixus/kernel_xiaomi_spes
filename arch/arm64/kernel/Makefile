@@ -41,15 +41,16 @@ obj-$(CONFIG_JUMP_LABEL)		+= jump_label.o
 obj-$(CONFIG_KGDB)			+= kgdb.o
 obj-$(CONFIG_EFI)			+= efi.o efi-entry.stub.o		\
 					   efi-rt-wrapper.o
-obj-$(CONFIG_PCI)			+= pci.o
-obj-$(CONFIG_ARMV8_DEPRECATED)		+= armv8_deprecated.o
-obj-$(CONFIG_ACPI)			+= acpi.o
-obj-$(CONFIG_ACPI_NUMA)			+= acpi_numa.o
-obj-$(CONFIG_ARM64_ACPI_PARKING_PROTOCOL)	+= acpi_parking_protocol.o
-obj-$(CONFIG_PARAVIRT)			+= paravirt.o
-obj-$(CONFIG_RANDOMIZE_BASE)		+= kaslr.o
-obj-$(CONFIG_HIBERNATION)		+= hibernate.o hibernate-asm.o
-obj-$(CONFIG_KEXEC_CORE)		+= machine_kexec.o relocate_kernel.o	\
+arm64-obj-$(CONFIG_PCI)			+= pci.o
+arm64-obj-$(CONFIG_ARMV8_DEPRECATED)	+= armv8_deprecated.o
+arm64-obj-$(CONFIG_ACPI)		+= acpi.o
+arm64-obj-$(CONFIG_ACPI_NUMA)		+= acpi_numa.o
+arm64-obj-$(CONFIG_ARM64_ACPI_PARKING_PROTOCOL)	+= acpi_parking_protocol.o
+arm64-obj-$(CONFIG_PARAVIRT)		+= paravirt.o
+arm64-obj-$(CONFIG_BOOT_INFO)		+= bootinfo.o
+arm64-obj-$(CONFIG_RANDOMIZE_BASE)	+= kaslr.o
+arm64-obj-$(CONFIG_HIBERNATION)		+= hibernate.o hibernate-asm.o
+arm64-obj-$(CONFIG_KEXEC)		+= machine_kexec.o relocate_kernel.o	\
 					   cpu-reset.o
 obj-$(CONFIG_KEXEC_FILE)		+= machine_kexec_file.o kexec_image.o
 obj-$(CONFIG_ARM64_RELOC_TEST)		+= arm64-reloc-test.o

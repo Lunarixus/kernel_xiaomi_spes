@@ -3351,70 +3351,27 @@ static inline void setup_nr_node_ids(void) {}
 
 extern int memcmp_pages(struct page *page1, struct page *page2);
 
-static inline int pages_identical(struct page *page1, struct page *page2)
-{
-	return !memcmp_pages(page1, page2);
-}
-
-#ifdef CONFIG_MAPPING_DIRTY_HELPERS
-unsigned long clean_record_shared_mapping_range(struct address_space *mapping,
-						pgoff_t first_index, pgoff_t nr,
-						pgoff_t bitmap_pgoff,
-						unsigned long *bitmap,
-						pgoff_t *start,
-						pgoff_t *end);
-
-unsigned long wp_shared_mapping_range(struct address_space *mapping,
-				      pgoff_t first_index, pgoff_t nr);
-#endif
-
-extern int sysctl_nr_trim_pages;
-extern bool pte_map_lock_addr(struct vm_fault *vmf, unsigned long addr);
-extern int reclaim_shmem_address_space(struct address_space *mapping);
-extern int reclaim_pages_from_list(struct list_head *page_list);
-
-/**
- * seal_check_future_write - Check for F_SEAL_FUTURE_WRITE flag and handle it
- * @seals: the seals to check
- * @vma: the vma to operate on
- *
- * Check whether F_SEAL_FUTURE_WRITE is set; if so, do proper check/handling on
- * the vma flags.  Return 0 if check pass, or <0 for errors.
- */
-static inline int seal_check_future_write(int seals, struct vm_area_struct *vma)
-{
-	if (seals & F_SEAL_FUTURE_WRITE) {
-		/*
-		 * New PROT_WRITE and MAP_SHARED mmaps are not allowed when
-		 * "future write" seal active.
-		 */
-		if ((vma->vm_flags & VM_SHARED) && (vma->vm_flags & VM_WRITE))
-			return -EPERM;
-
-		/*
-		 * Since an F_SEAL_FUTURE_WRITE sealed memfd can be mapped as
-		 * MAP_SHARED and read-only, take care to not allow mprotect to
-		 * revert protections on such mappings. Do this only for shared
-		 * mappings. For private mappings, don't need to mask
-		 * VM_MAYWRITE as we still want them to be COW-writable.
-		 */
-		if (vma->vm_flags & VM_SHARED)
-			vma->vm_flags &= ~(VM_MAYWRITE);
-	}
-
-	return 0;
-}
-
-#ifdef CONFIG_ANON_VMA_NAME
-int madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
-			  unsigned long len_in,
-			  struct anon_vma_name *anon_name);
-#else
-static inline int
-madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
-		      unsigned long len_in, struct anon_vma_name *anon_name) {
-	return 0;
-}
+#ifdef CONFIG_PROCESS_RECLAIM
+struct reclaim_param {
+	struct vm_area_struct *vma;
+	/* Number of pages scanned */
+	int nr_scanned;
+	/* max pages to reclaim */
+	int nr_to_reclaim;
+	/* pages reclaimed */
+	int nr_reclaimed;
+};
+extern struct reclaim_param reclaim_task_anon(struct task_struct *task,
+		int nr_to_reclaim);
+extern struct reclaim_param reclaim_task_nomap(struct task_struct *task,
+		int nr_to_reclaim);
+extern int reclaim_address_space(struct address_space *mapping,
+		struct reclaim_param *rp);
+extern int proc_reclaim_notifier_register(struct notifier_block *nb);
+extern int proc_reclaim_notifier_unregister(struct notifier_block *nb);
+extern int reclaim_pte_range(pmd_t *pmd, unsigned long addr,
+				unsigned long end, struct mm_walk *walk);
+extern unsigned long reclaim_global(unsigned long nr_to_reclaim);
 #endif
 
 #endif /* __KERNEL__ */
